@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SproutSense - Arduino Plant Moisture Alarm</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;1,600&display=swap');
+    
+    :root {
+      --bg-cream: #F8F6F0;
+      --card-bg: #FFFFFF;
+      --earth-brown: #6E4E3A;
+      --earth-light: #EFE9E1;
+      --green-dark: #1E432E;
+      --green-mid: #2D6A4F;
+      --green-soft: #D8F3DC;
+      --amber-warm: #C86D1E;
+      --amber-soft: #FDE8D3;
+      --teal-wet: #1B7A82;
+      --teal-soft: #D5F2F5;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      background-color: var(--bg-cream);
+      color: #2C3531;
+      -webkit-font-smoothing: antialiased;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .font-serif-plant {
+      font-family: 'Playfair Display', Georgia, serif;
+    }
+
+    /* Gauge transitions */
+    .gauge-needle {
+      transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+      transform-origin: 100px 88px;
+    }
+
+    /* Smooth animated wave / breath for plant */
+    @keyframes plant-breathe {
+      0%, 100% { transform: scale(1) translateY(0); }
+      50% { transform: scale(1.02) translateY(-2px); }
+    }
+    .plant-animate {
+      animation: plant-breathe 4s ease-in-out infinite;
+      transform-origin: center bottom;
+    }
+
+    /* Sparkline path smooth transition */
+    .sparkline-line {
+      transition: stroke-dashoffset 1s ease-in-out;
+    }
+
+    /* Card styling */
+    .plant-card {
+      background: #FFFFFF;
+      border: 1px solid #ECE7DE;
+      border-radius: 1.5rem;
+      box-shadow: 0 4px 20px -2px rgba(88, 71, 55, 0.05);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between py-4 px-3 sm:py-8 sm:px-6">
+
+  <!-- Main Mobile App Wrapper (Targeted 420px mobile viewport) -->
+  <main class="w-full max-w-[430px] mx-auto space-y-4">
+
+    <!-- Top Navigation / Status Header -->
+    <header class="flex items-center justify-between px-1">
+      <!-- Arduino Connection Pill -->
+      <div id="connectionPill" class="flex items-center gap-2 bg-[#EFE9E1] px-3 py-1.5 rounded-full text-xs font-semibold text-[#523E32] transition-colors shadow-sm">
+        <span id="connectionDot" class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span id="connectionText">Arduino Online (COM3)</span>
+      </div>
+
+      <!-- Last Updated Timestamp & Refresh -->
+      <div class="flex items-center gap-1.5 text-xs text-[#7A7165] font-medium">
+        <svg class="w-3.5 h-3.5 text-[#9E9486]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <span id="lastUpdatedTime">Updated just now</span>
+        <button id="refreshBtn" title="Sync reading" class="p-1 hover:text-[#2D6A4F] active:rotate-180 transition-transform">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Plant Profile Card with Friendly Animated Illustration -->
+    <section class="plant-card p-5 relative overflow-hidden bg-gradient-to-br from-[#FFFFFF] via-[#FAF8F5] to-[#F1ECE4]">
+      <!-- Background decorative leaves silhouette -->
+      <div class="absolute -right-6 -bottom-6 opacity-[0.06] pointer-events-none text-[#1E432E]">
+        <svg class="w-40 h-40" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+        </svg>
+      </div>
+
+      <div class="flex items-center gap-4">
+        <!-- Plant Avatar / Illustration -->
+        <div class="relative w-20 h-20 sm:w-22 sm:h-22 rounded-2xl bg-[#E8F5E9] flex items-center justify-center p-2 border border-[#C8E6C9] shadow-inner plant-animate flex-shrink-0">
+          <svg id="plantIllustration" class="w-full h-full" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Terracotta Pot -->
+            <path d="M28 62 L32 88 C32.5 91 35 93 38 93 L62 93 C65 93 67.5 91 68 88 L72 62 Z" fill="#B26743" stroke="#874324" stroke-width="2.5" stroke-linejoin="round"/>
+            <path d="M25 56 H75 C77 56 78 57.5 78 59 V62 H22 V59 C22 57.5 23 56 25 56 Z" fill="#C47854" stroke="#874324" stroke-width="2.5"/>
+            <!-- Pot rim highlight -->
+            <line x1="28" y1="59" x2="72" y2="59" stroke="#E29774" stroke-width="2" stroke-linecap="round"/>
+            
+            <!-- Soil in pot -->
+            <ellipse cx="50" cy="62" rx="22" ry="4" fill="#4A3326"/>
+            
+            <!-- Stem -->
+            <path d="M50 60 Q50 42 46 30" stroke="#2D6A4F" stroke-width="3.5" stroke-linecap="round"/>
+            <path d="M50 50 Q56 42 62 36" stroke="#2D6A4F" stroke-width="3" stroke-linecap="round"/>
+            <path d="M49 54 Q42 46 36 42" stroke="#2D6A4F" stroke-width="3" stroke-linecap="round"/>
+
+            <!-- Leaves (Monstera / Fiddle leaf style) -->
+            <!-- Left leaf -->
+            <path id="leafLeft" d="M36 42 C30 38 20 40 18 48 C16 56 26 60 36 48 Z" fill="#52B788" stroke="#1B4332" stroke-width="2"/>
+            <!-- Right leaf -->
+            <path id="leafRight" d="M62 36 C70 32 80 34 82 42 C84 50 74 54 62 42 Z" fill="#52B788" stroke="#1B4332" stroke-width="2"/>
+            <!-- Top Center leaf -->
+            <path id="leafCenter" d="M46 30 C44 18 52 10 56 12 C60 14 62 24 50 32 Z" fill="#40916C" stroke="#1B4332" stroke-width="2"/>
+
+            <!-- Cute Face on the Pot -->
+            <!-- Eyes -->
+            <circle id="eyeLeft" cx="44" cy="74" r="2.2" fill="#3E2723"/>
+            <circle id="eyeRight" cx="56" cy="74" r="2.2" fill="#3E2723"/>
+            <!-- Cheeks -->
+            <circle cx="40" cy="77" r="2.5" fill="#F8B195" opacity="0.8"/>
+            <circle cx="60" cy="77" r="2.5" fill="#F8B195" opacity="0.8"/>
+            <!-- Happy Mouth (changes dynamically) -->
+            <path id="potMouth" d="M47 78 Q50 82 53 78" stroke="#3E2723" stroke-width="2" stroke-linecap="round" fill="none"/>
+            <!-- Sweat drop (visible when dry) -->
+            <path id="sweatDrop" d="M68 68 C68 68 71 65 71 63 C71 61.5 69.5 60 68 60 C66.5 60 65 61.5 65 63 C65 65 68 68 68 68 Z" fill="#38BDF8" class="hidden"/>
+          </svg>
+        </div>
+
+        <!-- Name & Species Info -->
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2">
+            <h1 class="font-serif-plant text-xl font-bold text-[#1E432E] truncate">Monty</h1>
+            <span class="text-xs bg-[#E8F3EB] text-[#2D6A4F] px-2 py-0.5 rounded-md font-semibold">Living Room</span>
+          </div>
+          <p class="text-xs text-[#6B7280] mt-0.5">Monstera Deliciosa</p>
+          
+          <div class="flex items-center gap-3 mt-2 text-xs text-[#5C5549]">
+            <span class="inline-flex items-center gap-1 font-medium">
+              <span class="text-base">🌡️</span> 24°C Room
+            </span>
+            <span class="inline-flex items-center gap-1 font-medium">
+              <span class="text-base">☀️</span> Bright Indirect
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Moisture Metric & Status Card -->
+    <section class="plant-card p-6 text-center space-y-4">
+      
+      <!-- Card Subtitle -->
+      <div class="flex items-center justify-between text-xs font-semibold text-[#8C8275] uppercase tracking-wider px-1">
+        <span>Soil Moisture Sensor (A0)</span>
+        <span id="alarmIndicator" class="inline-flex items-center gap-1 text-emerald-600 font-bold">
+          <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Alarm Silent
+        </span>
+      </div>
+
+      <!-- Large Current Reading & Status -->
+      <div class="py-2">
+        <div class="flex items-baseline justify-center gap-1">
+          <span id="moistureValue" class="text-6xl sm:text-7xl font-extrabold tracking-tight text-[#1E432E] transition-all">42</span>
+          <span class="text-3xl sm:text-4xl font-bold text-[#4B7A60]">%</span>
+        </div>
+
+        <!-- Status Pill Label -->
+        <div class="mt-3 flex justify-center">
+          <div id="statusBadge" class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold bg-[#E8F5E9] text-[#1E6B3E] border border-[#C3E6CB] transition-all shadow-sm">
+            <span id="statusIcon" class="text-base">🌱</span>
+            <span id="statusText">Healthy Soil Moisture</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Soil Moisture Gauge (Low, Healthy, High Zones) -->
+      <div class="pt-2 pb-1">
+        <div class="relative max-w-[260px] mx-auto">
+          <!-- Semicircular SVG Gauge -->
+          <svg class="w-full" viewBox="0 0 200 115" fill="none">
+            <!-- Low Zone Arc: 0% to 30% (Angle 180° to 126°) -->
+            <path d="M 25 90 A 75 75 0 0 1 45.4 44.5" stroke="#E69555" stroke-width="16" stroke-linecap="round" fill="none"/>
+            <!-- Healthy Zone Arc: 30% to 65% (Angle 126° to 63°) -->
+            <path d="M 45.4 44.5 A 75 75 0 0 1 141.5 35.8" stroke="#40916C" stroke-width="16" fill="none"/>
+            <!-- High Zone Arc: 65% to 100% (Angle 63° to 0°) -->
+            <path d="M 141.5 35.8 A 75 75 0 0 1 175 90" stroke="#38A3A5" stroke-width="16" stroke-linecap="round" fill="none"/>
+
+            <!-- Gauge Needle -->
+            <!-- Base center: (100, 88) -->
+            <g id="gaugeNeedleGroup" class="gauge-needle" style="transform: rotate(-10deg);">
+              <circle cx="100" cy="88" r="8" fill="#2C3531" />
+              <circle cx="100" cy="88" r="4" fill="#FFFFFF" />
+              <!-- Needle Pointer pointing upward -->
+              <polygon points="98,88 102,88 100.8,20 99.2,20" fill="#2C3531" />
+              <line x1="100" y1="88" x2="100" y2="18" stroke="#D9534F" stroke-width="2.5" stroke-linecap="round"/>
+              <circle cx="100" cy="18" r="3" fill="#D9534F"/>
+            </g>
+
+            <!-- Zone Tick Marks & Labels inside SVG -->
+            <text x="25" y="108" font-size="11" font-weight="700" fill="#B45309" text-anchor="middle">0%</text>
+            <text x="100" y="80" font-size="10" font-weight="600" fill="#52796F" text-anchor="middle">50%</text>
+            <text x="175" y="108" font-size="11" font-weight="700" fill="#0E7490" text-anchor="middle">100%</text>
+          </svg>
+
+          <!-- Zone Legend Pill Row -->
+          <div class="grid grid-cols-3 gap-1.5 mt-1 text-center">
+            <div id="zoneLow" class="p-1.5 rounded-xl border border-transparent transition-all">
+              <div class="flex items-center justify-center gap-1 text-[11px] font-bold text-[#B45309]">
+                <span class="w-2 h-2 rounded-full bg-[#E69555]"></span> Low
+              </div>
+              <span class="text-[10px] text-[#8C7E72] block">0 – 30%</span>
+            </div>
+
+            <div id="zoneHealthy" class="p-1.5 rounded-xl border border-emerald-300 bg-emerald-50/70 transition-all">
+              <div class="flex items-center justify-center gap-1 text-[11px] font-bold text-[#1B4332]">
+                <span class="w-2 h-2 rounded-full bg-[#40916C]"></span> Healthy
+              </div>
+              <span class="text-[10px] text-[#406854] block font-semibold">30 – 65%</span>
+            </div>
+
+            <div id="zoneHigh" class="p-1.5 rounded-xl border border-transparent transition-all">
+              <div class="flex items-center justify-center gap-1 text-[11px] font-bold text-[#0E7490]">
+                <span class="w-2 h-2 rounded-full bg-[#38A3A5]"></span> High
+              </div>
+              <span class="text-[10px] text-[#8C7E72] block">65 – 100%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- Contextual Plant Care Tip Card -->
+    <section class="plant-card p-4 bg-[#FAF7F2] border border-[#E9E2D5] flex items-start gap-3.5 transition-all">
+      <div id="careTipIconBox" class="w-10 h-10 rounded-xl bg-[#E8F3EB] text-[#2D6A4F] flex items-center justify-center text-xl flex-shrink-0 shadow-sm">
+        💡
+      </div>
+      <div class="flex-1">
+        <h3 class="text-xs font-bold text-[#5C4D3C] uppercase tracking-wider">Plant Care Recommendation</h3>
+        <p id="careTipText" class="text-sm text-[#38423B] mt-0.5 leading-relaxed font-medium">
+          Moisture is in the sweet spot. Soil is comfortably damp. No watering needed for the next 2–3 days.
+        </p>
+      </div>
+    </section>
+
+    <!-- Recent Moisture History Chart Card -->
+    <section class="plant-card p-5 space-y-3">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <svg class="w-4 h-4 text-[#2D6A4F]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+          </svg>
+          <h2 class="text-sm font-bold text-[#1E432E]">Recent Moisture History</h2>
+        </div>
+        <span class="text-xs text-[#82786B] font-medium">Past 12 Hours</span>
+      </div>
+
+      <!-- SVG Sparkline Area Chart -->
+      <div class="relative w-full h-32 pt-2">
+        <svg id="historyChartSvg" class="w-full h-full overflow-visible" viewBox="0 0 320 100" preserveAspectRatio="none">
+          <defs>
+            <!-- Gradient under line -->
+            <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#40916C" stop-opacity="0.35"/>
+              <stop offset="100%" stop-color="#40916C" stop-opacity="0.0"/>
+            </linearGradient>
+            <!-- Low warning zone line -->
+            <pattern id="gridPattern" width="10" height="10" patternUnits="userSpaceOnUse">
+              <path d="M 10 0 L 0 0 0 10" fill="none" stroke="#ECE7DE" stroke-width="0.5"/>
+            </pattern>
+          </defs>
+
+          <!-- Healthy zone target background band (between 30% and 65% -> y=70 to y=35) -->
+          <rect x="0" y="35" width="320" height="35" fill="#E8F5E9" fill-opacity="0.55" rx="4" />
+          <text x="315" y="44" font-size="8" fill="#52796F" text-anchor="end" font-weight="600">Optimal Zone (30-65%)</text>
+
+          <!-- 30% Threshold Dashed Line -->
+          <line x1="0" y1="70" x2="320" y2="70" stroke="#E69555" stroke-dasharray="3 3" stroke-width="1" />
+          <text x="5" y="67" font-size="8" fill="#B45309" font-weight="600">Dry Threshold (30%)</text>
+
+          <!-- Filled Gradient Area -->
+          <polygon id="chartArea" points="10,48 70,51 130,54 190,56 250,57 310,58 310,100 10,100" fill="url(#chartGradient)"/>
+
+          <!-- Main Smooth Line -->
+          <path id="chartPath" d="M 10,48 Q 40,50 70,51 T 130,54 T 190,56 T 250,57 T 310,58" fill="none" stroke="#2D6A4F" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+          <!-- Data Points -->
+          <g id="chartPoints">
+            <!-- Rendered by JS -->
+          </g>
+        </svg>
+
+        <!-- X-Axis Time Labels -->
+        <div class="flex justify-between text-[11px] text-[#8C8275] pt-1 font-medium px-1">
+          <span>8 AM</span>
+          <span>10 AM</span>
+          <span>12 PM</span>
+          <span>2 PM</span>
+          <span>4 PM</span>
+          <span class="font-bold text-[#1E432E]">Now</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Interactive Simulator & Arduino Hardware Control Bar -->
+    <section class="plant-card p-4 space-y-3 bg-[#FAF8F5] border border-[#EBE4D8]">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-1.5">
+          <span class="text-sm">🎛️</span>
+          <h4 class="text-xs font-bold text-[#5C4E40] uppercase tracking-wider">Test & Hardware Tools</h4>
+        </div>
+        <span class="text-[11px] text-[#7E7467] font-medium">Interactive Demo</span>
+      </div>
+
+      <!-- Quick Preset Buttons -->
+      <div class="grid grid-cols-3 gap-2">
+        <button onclick="setMoisture(22)" class="py-2 px-2 rounded-xl text-xs font-bold bg-[#FDE8D3] text-[#B45309] hover:bg-[#FCD8B8] active:scale-95 transition-all shadow-sm flex flex-col items-center">
+          <span>🌵 Dry (22%)</span>
+          <span class="text-[10px] font-normal opacity-80">Alarm On</span>
+        </button>
+        <button onclick="setMoisture(42)" class="py-2 px-2 rounded-xl text-xs font-bold bg-[#D8F3DC] text-[#1B4332] ring-2 ring-[#2D6A4F] hover:bg-[#B7E4C7] active:scale-95 transition-all shadow-sm flex flex-col items-center">
+          <span>🌿 Healthy (42%)</span>
+          <span class="text-[10px] font-normal opacity-80">Ideal</span>
+        </button>
+        <button onclick="setMoisture(78)" class="py-2 px-2 rounded-xl text-xs font-bold bg-[#D5F2F5] text-[#0E7490] hover:bg-[#B6E8ED] active:scale-95 transition-all shadow-sm flex flex-col items-center">
+          <span>💧 Wet (78%)</span>
+          <span class="text-[10px] font-normal opacity-80">Too Wet</span>
+        </button>
+      </div>
+
+      <!-- Live Slider for Custom Value -->
+      <div class="pt-1">
+        <div class="flex justify-between text-xs text-[#6B5E50] mb-1 font-semibold">
+          <span>Manual Moisture Slider:</span>
+          <span id="sliderLabel" class="font-bold text-[#1E432E]">42%</span>
+        </div>
+        <input id="moistureSlider" type="range" min="0" max="100" value="42" 
+          class="w-full h-2.5 bg-[#E2DBD0] rounded-lg appearance-none cursor-pointer accent-[#2D6A4F]"
+          oninput="setMoisture(parseInt(this.value))">
+      </div>
+
+      <!-- Real Web Serial Connect Button for real Arduino IoT hardware -->
+      <div class="pt-2 border-t border-[#ECE5DB] flex flex-col sm:flex-row gap-2">
+        <button id="webSerialBtn" onclick="toggleWebSerial()" class="flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-[#2D6A4F] text-white hover:bg-[#1E432E] active:scale-95 transition-all flex items-center justify-center gap-1.5 shadow-sm">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          <span id="serialBtnText">Connect Arduino USB (Web Serial)</span>
+        </button>
+        
+        <button onclick="playBuzzerSound()" title="Test alarm buzzer beep" class="py-2 px-3 rounded-xl text-xs font-bold bg-[#EFE9E1] text-[#5C4D3C] hover:bg-[#E2DBD0] active:scale-95 transition-all flex items-center justify-center gap-1">
+          <span>🔔 Test Buzzer</span>
+        </button>
+      </div>
+
+    </section>
+
+    <!-- Footer Note -->
+    <footer class="text-center text-xs text-[#8C8275] pt-1 pb-4">
+      <p>Arduino Plant Moisture Alarm • Soil Sensor (A0) • Built with SproutSense</p>
+    </footer>
+
+  </main>
+
+  <script>
+    // Initial Realistic Sample Data
+    let currentMoisture = 42;
+    let historyReadings = [
+      { time: '8 AM', value: 52 },
+      { time: '10 AM', value: 49 },
+      { time: '12 PM', value: 46 },
+      { time: '2 PM', value: 44 },
+      { time: '4 PM', value: 43 },
+      { time: 'Now', value: 42 }
+    ];
+
+    let serialPort = null;
+    let serialReader = null;
+    let isConnectedToSerial = false;
+    let audioCtx = null;
+
+    // Updates all UI components to reflect the given moisture value
+    function updateDashboard(val) {
+      currentMoisture = Math.max(0, Math.min(100, Math.round(val)));
+      
+      // Update Big Number
+      const moistureValueEl = document.getElementById('moistureValue');
+      moistureValueEl.textContent = currentMoisture;
+
+      // Update Slider and Label
+      const slider = document.getElementById('moistureSlider');
+      slider.value = currentMoisture;
+      document.getElementById('sliderLabel').textContent = currentMoisture + '%';
+
+      // Update Last Updated Time
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      document.getElementById('lastUpdatedTime').textContent = `Updated ${timeStr}`;
+
+      // Update Needle Angle on Semicircular Gauge
+      // 0% -> -90 deg, 50% -> 0 deg, 100% -> +90 deg
+      const needleAngle = -90 + (currentMoisture / 100) * 180;
+      document.getElementById('gaugeNeedleGroup').style.transform = `rotate(${needleAngle}deg)`;
+
+      // Identify Status Zone
+      // Low: < 30%, Healthy: 30% - 65%, High: > 65%
+      const statusBadge = document.getElementById('statusBadge');
+      const statusIcon = document.getElementById('statusIcon');
+      const statusText = document.getElementById('statusText');
+      const careTipText = document.getElementById('careTipText');
+      const careTipIconBox = document.getElementById('careTipIconBox');
+      const alarmIndicator = document.getElementById('alarmIndicator');
+      
+      const zoneLow = document.getElementById('zoneLow');
+      const zoneHealthy = document.getElementById('zoneHealthy');
+      const zoneHigh = document.getElementById('zoneHigh');
+
+      // Pot facial expressions
+      const potMouth = document.getElementById('potMouth');
+      const sweatDrop = document.getElementById('sweatDrop');
+      const eyeLeft = document.getElementById('eyeLeft');
+      const eyeRight = document.getElementById('eyeRight');
+      const leafLeft = document.getElementById('leafLeft');
+      const leafRight = document.getElementById('leafRight');
+
+      // Reset Zone Card highlights
+      zoneLow.className = "p-1.5 rounded-xl border border-transparent transition-all";
+      zoneHealthy.className = "p-1.5 rounded-xl border border-transparent transition-all";
+      zoneHigh.className = "p-1.5 rounded-xl border border-transparent transition-all";
+
+      if (currentMoisture < 30) {
+        // --- ZONE: NEEDS WATER (LOW) ---
+        statusBadge.className = "inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold bg-[#FDE8D3] text-[#B45309] border border-[#F8CBA6] transition-all shadow-sm";
+        statusIcon.textContent = "💧";
+        statusText.textContent = "Needs Water (Dry Soil)";
+        
+        careTipIconBox.className = "w-10 h-10 rounded-xl bg-[#FDE8D3] text-[#B45309] flex items-center justify-center text-xl flex-shrink-0 shadow-sm";
+        careTipIconBox.textContent = "🚿";
+        careTipText.innerHTML = "<strong>Time for a drink!</strong> Top soil has dried out. Pour roughly <strong>250ml (1 cup)</strong> of room-temperature water evenly around the base.";
+        
+        alarmIndicator.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span> <span class="text-amber-700 font-bold">Alarm Buzzer Active</span>';
+        
+        zoneLow.className = "p-1.5 rounded-xl border border-amber-300 bg-amber-50 font-semibold transition-all";
+
+        // Plant Face: Thirsty / Worried
+        potMouth.setAttribute('d', 'M46 81 Q50 76 54 81'); // Sad frown
+        sweatDrop.classList.remove('hidden');
+        eyeLeft.setAttribute('r', '2.6');
+        eyeRight.setAttribute('r', '2.6');
+        // Droop leaves slightly
+        leafLeft.setAttribute('fill', '#83A374');
+        leafRight.setAttribute('fill', '#83A374');
+
+      } else if (currentMoisture <= 65) {
+        // --- ZONE: HEALTHY (OPTIMAL) ---
+        statusBadge.className = "inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold bg-[#E8F5E9] text-[#1E6B3E] border border-[#C3E6CB] transition-all shadow-sm";
+        statusIcon.textContent = "🌱";
+        statusText.textContent = "Healthy (Optimal Moisture)";
+
+        careTipIconBox.className = "w-10 h-10 rounded-xl bg-[#E8F3EB] text-[#2D6A4F] flex items-center justify-center text-xl flex-shrink-0 shadow-sm";
+        careTipIconBox.textContent = "🌿";
+        careTipText.innerHTML = "<strong>Looking vibrant!</strong> Monty's soil is pleasantly moist and aerated. No watering needed for the next <strong>2–3 days</strong>.";
+
+        alarmIndicator.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500"></span> <span class="text-emerald-700 font-semibold">Alarm Silent</span>';
+
+        zoneHealthy.className = "p-1.5 rounded-xl border border-emerald-300 bg-emerald-50/80 font-semibold transition-all";
+
+        // Plant Face: Happy smile
+        potMouth.setAttribute('d', 'M47 78 Q50 82 53 78'); // Big smile
+        sweatDrop.classList.add('hidden');
+        eyeLeft.setAttribute('r', '2.2');
+        eyeRight.setAttribute('r', '2.2');
+        leafLeft.setAttribute('fill', '#52B788');
+        leafRight.setAttribute('fill', '#52B788');
+
+      } else {
+        // --- ZONE: TOO WET (HIGH) ---
+        statusBadge.className = "inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold bg-[#D5F2F5] text-[#0E7490] border border-[#A5E5EC] transition-all shadow-sm";
+        statusIcon.textContent = "🌊";
+        statusText.textContent = "Too Wet (Saturated)";
+
+        careTipIconBox.className = "w-10 h-10 rounded-xl bg-[#D5F2F5] text-[#0E7490] flex items-center justify-center text-xl flex-shrink-0 shadow-sm";
+        careTipIconBox.textContent = "⚠️";
+        careTipText.innerHTML = "<strong>Hold off on water!</strong> Soil is soaked. Empty any standing water from the saucer underneath to prevent root rot.";
+
+        alarmIndicator.innerHTML = '<span class="w-2 h-2 rounded-full bg-cyan-500"></span> <span class="text-cyan-700 font-semibold">High Moisture Alert</span>';
+
+        zoneHigh.className = "p-1.5 rounded-xl border border-cyan-300 bg-cyan-50 font-semibold transition-all";
+
+        // Plant Face: Surprised / Splash
+        potMouth.setAttribute('d', 'M48 77 A 2.5 2.5 0 1 0 52 77 A 2.5 2.5 0 1 0 48 77'); // Round 'O' mouth
+        sweatDrop.classList.remove('hidden');
+        eyeLeft.setAttribute('r', '2.8');
+        eyeRight.setAttribute('r', '2.8');
+        leafLeft.setAttribute('fill', '#489FB5');
+        leafRight.setAttribute('fill', '#489FB5');
+      }
+
+      // Update Latest Reading in History
+      historyReadings[historyReadings.length - 1].value = currentMoisture;
+      renderHistoryChart();
+    }
+
+    // Helper to set preset and animate
+    function setMoisture(val) {
+      updateDashboard(val);
+    }
+
+    // Render the SVG Sparkline history chart
+    function renderHistoryChart() {
+      const width = 320;
+      const height = 100;
+      const paddingX = 15;
+      const availWidth = width - 2 * paddingX;
+      const step = availWidth / (historyReadings.length - 1);
+
+      // Map values (0 - 100%) to SVG Y coordinates: 100% -> y=10, 0% -> y=90
+      function getY(val) {
+        return 90 - (val / 100) * 80;
+      }
+
+      let points = historyReadings.map((d, i) => {
+        return {
+          x: Math.round(paddingX + i * step),
+          y: Math.round(getY(d.value)),
+          val: d.value,
+          time: d.time
+        };
+      });
+
+      // Build smooth path
+      let pathD = `M ${points[0].x},${points[0].y}`;
+      for (let i = 0; i < points.length - 1; i++) {
+        let p0 = points[i];
+        let p1 = points[i + 1];
+        let cx = (p0.x + p1.x) / 2;
+        pathD += ` C ${cx},${p0.y} ${cx},${p1.y} ${p1.x},${p1.y}`;
+      }
+
+      // Update stroke path
+      document.getElementById('chartPath').setAttribute('d', pathD);
+
+      // Update filled gradient polygon
+      let polyPoints = `${points[0].x},${points[0].y} `;
+      for (let i = 1; i < points.length; i++) {
+        polyPoints += `${points[i].x},${points[i].y} `;
+      }
+      polyPoints += `${points[points.length - 1].x},100 ${points[0].x},100`;
+      document.getElementById('chartArea').setAttribute('points', polyPoints);
+
+      // Render dots
+      const pointsGroup = document.getElementById('chartPoints');
+      pointsGroup.innerHTML = '';
+
+      points.forEach((pt, idx) => {
+        const isCurrent = idx === points.length - 1;
+        
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', 'cursor-pointer group');
+
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', pt.x);
+        circle.setAttribute('cy', pt.y);
+        circle.setAttribute('r', isCurrent ? '5' : '3.5');
+        circle.setAttribute('fill', isCurrent ? '#2D6A4F' : '#FFFFFF');
+        circle.setAttribute('stroke', isCurrent ? '#FFFFFF' : '#2D6A4F');
+        circle.setAttribute('stroke-width', '2');
+
+        // Text value above dot
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', pt.x);
+        text.setAttribute('y', pt.y - 8);
+        text.setAttribute('font-size', '9');
+        text.setAttribute('font-weight', isCurrent ? '700' : '500');
+        text.setAttribute('fill', isCurrent ? '#1B4332' : '#736B5E');
+        text.setAttribute('text-anchor', 'middle');
+        text.textContent = `${pt.val}%`;
+
+        g.appendChild(circle);
+        g.appendChild(text);
+        pointsGroup.appendChild(g);
+      });
+    }
+
+    // Gentle Buzzer Sound synthesis using Web Audio API
+    function playBuzzerSound() {
+      try {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        // Pulsing piezo alarm sound
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
+        osc.frequency.setValueAtTime(1200, audioCtx.currentTime + 0.1);
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.2);
+
+        gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.35);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.35);
+      } catch (e) {
+        console.warn('Audio not allowed yet without user gesture', e);
+      }
+    }
+
+    // Web Serial API implementation for real Arduino USB connection!
+    async function toggleWebSerial() {
+      if (!('serial' in navigator)) {
+        alert('Web Serial is supported in modern Chrome, Edge, and Opera.\nIn other browsers, use the interactive simulator controls above!');
+        return;
+      }
+
+      if (isConnectedToSerial) {
+        // Disconnect
+        try {
+          if (serialReader) {
+            await serialReader.cancel();
+          }
+          if (serialPort) {
+            await serialPort.close();
+          }
+        } catch (e) {
+          console.error(e);
+        }
+        isConnectedToSerial = false;
+        document.getElementById('serialBtnText').textContent = "Connect Arduino USB (Web Serial)";
+        document.getElementById('connectionText').textContent = "Simulated Mode";
+        document.getElementById('connectionDot').className = "w-2.5 h-2.5 rounded-full bg-amber-400";
+        return;
+      }
+
+      try {
+        serialPort = await navigator.serial.requestPort();
+        await serialPort.open({ baudRate: 9600 });
+        isConnectedToSerial = true;
+
+        document.getElementById('serialBtnText').textContent = "Disconnect Arduino";
+        document.getElementById('connectionText').textContent = "Arduino Connected (USB)";
+        document.getElementById('connectionDot').className = "w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse";
+
+        readSerialData();
+      } catch (err) {
+        console.error('Serial connection failed:', err);
+        alert('Could not connect to serial port. Make sure no other program (like Arduino IDE Serial Monitor) is using it.');
+      }
+    }
+
+    async function readSerialData() {
+      const textDecoder = new TextDecoderStream();
+      const readableStreamClosed = serialPort.readable.pipeTo(textDecoder.writable);
+      serialReader = textDecoder.readable.getReader();
+
+      let buffer = '';
+
+      try {
+        while (true) {
+          const { value, done } = await serialReader.read();
+          if (done) break;
+          buffer += value;
+
+          // Split lines received from Arduino (Serial.println)
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // Keep uncompleted line in buffer
+
+          for (const line of lines) {
+            const cleanLine = line.trim();
+            if (!cleanLine) continue;
+
+            // Attempt to parse JSON or raw integer
+            let parsedVal = null;
+            if (cleanLine.startsWith('{') && cleanLine.endsWith('}')) {
+              try {
+                const data = JSON.parse(cleanLine);
+                if (data.moisture !== undefined) parsedVal = data.moisture;
+              } catch (e) {}
+            } else {
+              const num = parseInt(cleanLine, 10);
+              if (!isNaN(num)) parsedVal = num;
+            }
+
+            if (parsedVal !== null) {
+              updateDashboard(parsedVal);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Serial read error:', error);
+      } finally {
+        serialReader.releaseLock();
+      }
+    }
+
+    // Refresh button animation
+    document.getElementById('refreshBtn').addEventListener('click', () => {
+      // Small simulated jitter for realism if in demo mode
+      if (!isConnectedToSerial) {
+        const jitter = Math.floor((Math.random() * 3) - 1);
+        const nextVal = Math.max(5, Math.min(95, currentMoisture + jitter));
+        updateDashboard(nextVal);
+      }
+    });
+
+    // Initialize on load
+    window.addEventListener('DOMContentLoaded', () => {
+      updateDashboard(42);
+    });
+  </script>
+</body>
+</html>
